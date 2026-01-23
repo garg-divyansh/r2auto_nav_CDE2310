@@ -40,11 +40,11 @@ class Scanner(Node):
 
         # log the info
         angle_rad = msg.angle_min + lr2i * msg.angle_increment
-	angle_deg = np.degrees(angle_rad)
+        angle_deg = np.degrees(angle_rad)
 
-	self.get_logger().info(
-    		f'Shortest distance at {angle_deg:.1f} degrees'
-	)
+        self.get_logger().info(
+            f'Shortest distance at {angle_deg:.1f} degrees'
+        )
 
         # self.get_logger().info('Shortest distance at %i degrees' % lr2i)
 
