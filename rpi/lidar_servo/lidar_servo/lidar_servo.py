@@ -22,8 +22,8 @@ import time
 
 class Scanner(Node):
 
-    def init(self):
-        super().init('scanner')
+    def __init__(self):
+        super().__init__('scanner')
         self.subscription = self.create_subscription(
             LaserScan,
             'scan',
