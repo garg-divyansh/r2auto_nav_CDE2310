@@ -53,8 +53,8 @@ class Scanner(Node):
         # Initialise the servo to be controlled by pwm with 50 Hz frequency
         self.servo_pwm = GPIO.PWM(self.servo_pin, 50)
 
-        # Set servo to 90 degrees as it's starting position
-        self.servo_pwm.start(2.5)
+        # Start pwm
+        self.servo_pwm.start(0)
 
         # State flag
         self.completed_flag = False
@@ -69,9 +69,9 @@ class Scanner(Node):
 
         shortest_distance = laser_range[lr2i]
 
-        self.get_logger().info(
-            f'Shortest distance is {shortest_distance}'
-        )
+        # self.get_logger().info(
+        #     f'Shortest distance is {shortest_distance}'
+        # )
         
         # Check if object is closer than threshold distance, and actuate once
         if (shortest_distance is not None) and (shortest_distance < self.distance_threshold_m):
