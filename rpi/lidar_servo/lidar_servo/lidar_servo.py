@@ -24,23 +24,40 @@ class Scanner(Node):
 
     def __init__(self):
         super().__init__('scanner')
+
+        # Command line configurable pinmap, solenoid pulse duration & distance threshold
+        self.declare_parameter('servo_pin', 18)
+        self.declare_parameter('solenoid_pin', 23)
+        self.declare_parameter('solenoid_pulse_s', 0.5)
+        self.declare_parameter('distance_threshold_m', 1)
+        self.servo_pin = self.get_parameter('servo_pin').get_parameter_value().integer_value
+        self.solenoid_pin = self.get_parameter('solenoid_pin').get_parameter_value().integer_value
+        self.solenoid_pulse_s = self.get_parameter('solenoid_pulse_s').get_parameter_value().double_value
+        self.distance_threshold_m = self.get_parameter('distance_threshold_m').get_parameter_value().double_value
+        
+        # Subscription to LIDAR
         self.subscription = self.create_subscription(
             LaserScan,
             'scan',
             self.listener_callback,
             qos_profile_sensor_data)
         self.subscription  # prevent unused variable warning
-        self.shortest_distance = None
-        # Set pin numbering convention
+
+        # Set pin by BCM (Broadcom SOC channel)
         GPIO.setmode(GPIO.BCM)
-        # Choose an appropriate pwm channel to be used to control the servo
-        self.servo_pin = 18
-        # Set the pin as an output
+        
+        # Set the servo, solenoid pin as output
+        GPIO.setup(self.solenoid_pin, GPIO.OUT)
         GPIO.setup(self.servo_pin, GPIO.OUT)
+
         # Initialise the servo to be controlled by pwm with 50 Hz frequency
-        self.p = GPIO.PWM(self.servo_pin, 50)
+        self.servo_pwm = GPIO.PWM(self.servo_pin, 50)
+
         # Set servo to 90 degrees as it's starting position
-        self.p.start(2.5)
+        self.servo_pwm.start(2.5)
+
+        # State flag
+        self.completed_flag = False
 
     def listener_callback(self, msg):
         # create numpy array
@@ -50,34 +67,44 @@ class Scanner(Node):
         # find index with minimum value
         lr2i = np.nanargmin(laser_range)
 
-        # log the info
-        angle_rad = msg.angle_min + lr2i * msg.angle_increment
-        angle_deg = np.degrees(angle_rad)
-
-        self.shortest_distance = laser_range[lr2i]
+        shortest_distance = laser_range[lr2i]
 
         self.get_logger().info(
-            f'Shortest distance at {laser_range[lr2i]} degrees'
+            f'Shortest distance is {shortest_distance}'
         )
         
-        self.servospin()
+        # Check if object is closer than threshold distance, and actuate once
+        if (shortest_distance is not None) and (shortest_distance < self.distance_threshold_m):
+            if not self.completed_flag:
+                self.completed_flag = True
+                self.get_logger().info(f'Object too close! {shortest_distance}m')
+                self.servo_moveTo(45)
+                self.pulse_solenoid(self.solenoid_pulse_s)
+    
+        elif (shortest_distance is not None) and self.completed_flag:
+            self.get_logger().info('No objects nearby.')
+            self.completed_flag = False
+            self.servo_moveTo(0)
 
         # self.get_logger().info('Shortest distance at %i degrees' % lr2i)
 
-    def servospin(self):
-        short = self.shortest_distance
-        if short is not None:
-            if short < 1:
-                self.p.ChangeDutyCycle(5)  # turn servo to 90 degrees
-                self.get_logger().info('Object too close! Stopping robot.')
-            else:
-                self.p.ChangeDutyCycle(2.5)  # turn servo to 0 degrees
-                self.get_logger().info('Path is clear. Continuing.')
+    # @brief Rotate servo to angle (degrees)
+    # @note Blocks for 0.5s for servo to rotate
+    def servo_moveTo(self, angle_deg):
+        # Constrain angle to [0, 180]
+        angle_deg = max(0, min(180, angle_deg))
+        self.servo_pwm.ChangeDutyCycle(2.5 + angle_deg/180 * 10)
+
+    # @brief Actuate solenoid for specified duration (seconds)
+    # @note Blocks until actuation complete, then blocks another 0.5s for recovery
+    def pulse_solenoid(self, pulse_s):
+        GPIO.output(self.solenoid_pin, GPIO.HIGH)
+        time.sleep(pulse_s)
+        GPIO.output(self.solenoid_pin, GPIO.LOW)
+        time.sleep(0.5)
 
 def main(args=None):
     rclpy.init(args=args)
-
-
 
     scanner = Scanner()
 
