@@ -69,9 +69,9 @@ class Scanner(Node):
 
         shortest_distance = laser_range[lr2i]
 
-        # self.get_logger().info(
-        #     f'Shortest distance is {shortest_distance}'
-        # )
+        self.get_logger().info(
+            f'Shortest distance is {shortest_distance}'
+        )
         
         # Check if object is closer than threshold distance, and actuate once
         if (shortest_distance is not None) and (shortest_distance < self.distance_threshold_m):
@@ -85,8 +85,6 @@ class Scanner(Node):
             self.get_logger().info('No objects nearby.')
             self.completed_flag = False
             self.servo_moveTo(0)
-
-        # self.get_logger().info('Shortest distance at %i degrees' % lr2i)
 
     # @brief Rotate servo to angle (degrees)
     # @note Blocks for 0.5s for servo to rotate
