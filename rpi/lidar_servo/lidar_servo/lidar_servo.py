@@ -26,10 +26,10 @@ class Scanner(Node):
         super().__init__('scanner')
 
         # Command line configurable pinmap, solenoid pulse duration & distance threshold
-        self.declare_parameter('servo_pin', 18)
-        self.declare_parameter('solenoid_pin', 23)
-        self.declare_parameter('solenoid_pulse_s', 0.5)
-        self.declare_parameter('distance_threshold_m', 1.0)
+        self.declare_parameter('servo_pin', 13)
+        self.declare_parameter('solenoid_pin', 24)  
+        self.declare_parameter('solenoid_pulse_s', 2.0)
+        self.declare_parameter('distance_threshold_m', 0.2)
         self.servo_pin = self.get_parameter('servo_pin').get_parameter_value().integer_value
         self.solenoid_pin = self.get_parameter('solenoid_pin').get_parameter_value().integer_value
         self.solenoid_pulse_s = self.get_parameter('solenoid_pulse_s').get_parameter_value().double_value
