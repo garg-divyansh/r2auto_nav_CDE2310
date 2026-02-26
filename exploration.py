@@ -32,6 +32,7 @@ class ExplorerNode(Node):
 
         self.flag = True  # Flag to indicate navigation completion
         self.time = 0
+        self.explorationtime = time.time()
 
     def map_callback(self, msg):
         self.map_data = msg
@@ -102,7 +103,7 @@ class ExplorerNode(Node):
         for r in range(1, rows - 1):
             for c in range(1, cols - 1):
                 # self.get_logger().info(f"Checking cell ({r}, {c}): value={map_array[r, c]}")
-                if 0 <= map_array[r, c] <= 43:  # Free cell
+                if 0 <= map_array[r, c] <= 10:  # Free cell
                     # Check if any neighbors are unknown
                     neighbors = map_array[r-1:r+2, c-1:c+2].flatten()
                     if -1 in neighbors:
@@ -150,13 +151,16 @@ class ExplorerNode(Node):
         # Detect frontiers
         frontiers = self.find_frontiers(map_array)
 
-        if not frontiers:
-            self.get_logger().info("No frontiers found. Exploration complete!")
-
-
+        if time.time() - self.explorationtime < 30:
+            self.get_logger().info("Exploration in progress...")
+        else:
+            if len(frontiers) <= 5:
+                self.get_logger().info("No frontiers found. Exploration complete!")
+                self.timer.cancel()
+                rclpy.shutdown()
 
             # self.shutdown_robot()
-            return
+                return
 
         # Choose the closest frontier
         chosen_frontier = self.choose_frontier(frontiers)
