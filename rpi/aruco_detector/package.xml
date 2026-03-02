@@ -1,11 +1,15 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>nikidudu</name>
+  <name>aruco_detector</name>
   <version>0.0.0</version>
-  <description>TODO: nikidudu</description>
+  <description>TODO: Package description</description>
   <maintainer email="yizhangwang07@gmail.com">grp5</maintainer>
-  <license>Apache-2.0</license>
+  <license>TODO: License declaration</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

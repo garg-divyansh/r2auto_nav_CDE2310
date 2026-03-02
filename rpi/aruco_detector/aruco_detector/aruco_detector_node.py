@@ -2,10 +2,10 @@ from scipy.spatial.transform import Rotation as R
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image         # raw camera image
 from geometry_msgs.msg import PoseStamped
-from cv_bridge import CvBridge
 
 import cv2
 import numpy as np
@@ -15,41 +15,50 @@ class ArucoDetector(Node):
     def __init__(self):
         super().__init__('aruco_detector')
 
-        # Subscriber to camera images
-        self.subscription = self.create_subscription(
-            CompressedImage,
-            '/camera/image_raw/compressed',
-            self.image_callback,
-            10
+        # QoS profile for camera images
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
         )
 
-        # Publisher for marker pose
+        # Subscriber to raw camera images
+        self.subscription = self.create_subscription(
+            Image,
+            '/camera/image_raw',
+            self.image_callback,
+            qos_profile
+        )
+
+        # Publisher for marker poses
         self.pose_publisher = self.create_publisher(
             PoseStamped,
             '/aruco_pose',
             10
         )
 
-        # CvBridge for ROS <-> OpenCV conversion
-        self.bridge = CvBridge()
-
         # Aruco dictionary and detector parameters
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.parameters = cv2.aruco.DetectorParameters()
+        self.parameters = cv2.aruco.DetectorParameters_create()
 
-        #loaded camera calibration data from external file
-        calib_data = np.load("camera_calib.npz")
-
+        # Load camera calibration data
+        calib_data = np.load("/home/grp5/turtlebot3_ws/src/aruco_detector/aruco_detector/camera_calib.npz")
         self.camera_matrix = calib_data['camera_matrix']
         self.dist_coeffs = calib_data['dist_coeff']
 
-        # Real-world marker size in meters, remember to change
+        # Real-world marker size in meters
         self.marker_length = 0.05
 
     def image_callback(self, msg):
-        # Convert ROS compressed image to OpenCV BGR
-        np_arr = np.frombuffer(msg.data, np.uint8)
-        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        try:
+            # NV21 (YUV420) to BGR conversion
+            height = msg.height
+            width = msg.width
+            yuv = np.frombuffer(msg.data, dtype=np.uint8).reshape((height * 3 // 2, width))
+            frame = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_NV21)
+        except Exception as e:
+            self.get_logger().warn(f"Failed to convert image: {e}")
+            return
 
         # Detect Aruco markers
         corners, ids, _ = cv2.aruco.detectMarkers(
@@ -59,13 +68,13 @@ class ArucoDetector(Node):
         )
 
         if ids is not None:
-            # Draw markers on frame for visualization
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            # Draw markers on frame for visualization (optional)
+            # cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
             for i in range(len(ids)):
                 half = self.marker_length / 2
 
-                # Define 3D coordinates of marker corners
+                # 3D coordinates of marker corners
                 obj_points = np.array([
                     [-half, half, 0],
                     [half, half, 0],
@@ -73,7 +82,7 @@ class ArucoDetector(Node):
                     [-half, -half, 0]
                 ], dtype=np.float32)
 
-                # Solve PnP to get marker pose
+                # Solve PnP for marker pose
                 success, rvec, tvec = cv2.solvePnP(
                     obj_points,
                     corners[i],
@@ -107,9 +116,9 @@ class ArucoDetector(Node):
                     # Publish marker pose
                     self.pose_publisher.publish(pose_msg)
 
-        # Optional: visualize
-        #cv2.imshow("Aruco Detection", frame)
-        #cv2.waitKey(1)
+        # Optional: visualize (uncomment for debugging)
+        # cv2.imshow("Aruco Detection", frame)
+        # cv2.waitKey(1)
 
 
 def main(args=None):
