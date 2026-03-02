@@ -1,12 +1,42 @@
+import math
+
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
+# from nav_msgs.msg import Odometry
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 import numpy as np
 import time
 
+#imports for transform
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+
+
+def euler_from_quaternion(x, y, z, w):
+    """
+    Convert a quaternion into euler angles (roll, pitch, yaw)
+    roll is rotation around x in radians (counterclockwise)
+    pitch is rotation around y in radians (counterclockwise)
+    yaw is rotation around z in radians (counterclockwise)
+    """
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    roll_x = math.atan2(t0, t1)
+
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    pitch_y = math.asin(t2)
+
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    yaw_z = math.atan2(t3, t4)
+
+    return roll_x, pitch_y, yaw_z # in radians
 
 class ExplorerNode(Node):
     def __init__(self):
@@ -16,6 +46,19 @@ class ExplorerNode(Node):
         # Subscriber to the map topic
         self.map_sub = self.create_subscription(
             OccupancyGrid, 'map', self.map_callback, 10)
+        
+        # Subscriber to the odometry topic
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.timer = self.create_timer(0.5, self.get_robot_pose)
+
+        # Subscriber to the ros2 camera
+
+        # Publisher for rotation
+        self.publisher_ = self.create_publisher(Twist,'cmd_vel',10)
+
+
 
         # Action client for navigation
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -28,15 +71,37 @@ class ExplorerNode(Node):
         self.robot_position = (0, 0)  # Placeholder, update from localization
 
         # Timer for periodic exploration
-        self.timer = self.create_timer(5.0, self.explore)
+        self.timer = self.create_timer(0.5, self.explore)
 
         self.flag = True  # Flag to indicate navigation completion
         self.time = 0
         self.explorationtime = time.time()
 
+    # for odometry
+    # def odom_callback(self, msg):
+    #     # self.get_logger().info('In odom_callback')
+    #     orientation_quat =  msg.pose.pose.orientation
+    #     self.roll, self.pitch, self.yaw = euler_from_quaternion(orientation_quat.x, orientation_quat.y, orientation_quat.z, orientation_quat.w)
+    #     position = msg.pose.pose.position
+    #     self.robot_position = (position.x, position.y)  # Update robot position (row)
+
+    def get_robot_pose(self):
+        try:
+            trans = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            x = trans.transform.translation.x
+            y = trans.transform.translation.y
+            q = trans.transform.rotation
+            roll, pitch, yaw = euler_from_quaternion(q.x, q.y, q.z, q.w)
+            self.robot_position = (x, y)  # Update robot position (row)        
+            return None    
+        except Exception:
+            return None, None, None
+
+
+
     def map_callback(self, msg):
         self.map_data = msg
-        self.get_logger().info("Map received")
+        # self.get_logger().info("Map received")
 
     def navigate_to(self, x, y):
         """
@@ -98,16 +163,23 @@ class ExplorerNode(Node):
 
         # if -1 in map_array:
         #     self.get_logger().info("Frontiers detected in the map")
-
+        min_val = 100
         # Iterate through each cell in the map
         for r in range(1, rows - 1):
             for c in range(1, cols - 1):
                 # self.get_logger().info(f"Checking cell ({r}, {c}): value={map_array[r, c]}")
-                if 0 <= map_array[r, c] <= 10:  # Free cell
+                if map_array[r, c] != -1 and  map_array[r, c] < min_val:
+                        min_val = map_array[r, c]
+
+                if 0 <= map_array[r, c] <= 49:  # Free cell IMPORTANT TO ADJUST
                     # Check if any neighbors are unknown
                     neighbors = map_array[r-1:r+2, c-1:c+2].flatten()
                     if -1 in neighbors:
                         frontiers.append((r, c))
+
+
+        self.get_logger().info(f"Minimum cell value in the map: {min_val}")
+        
 
 
         self.get_logger().info(f"Found {len(frontiers)} frontiers")
@@ -117,17 +189,21 @@ class ExplorerNode(Node):
         """
         Choose the closest frontier to the robot.
         """
-        robot_row, robot_col = self.robot_position
+        robot_x, robot_y = self.robot_position
+        self.get_logger().info(f"Robot position: {self.robot_position}")
         min_distance = float('inf')
         chosen_frontier = None
         
-
+        
         for frontier in frontiers:
             if frontier in self.visited_frontiers:
                 continue
+            
+            position_x = frontier[1] * self.map_data.info.resolution + self.map_data.info.origin.position.x
+            position_y = frontier[0] * self.map_data.info.resolution + self.map_data.info.origin.position.y
 
-            distance = np.sqrt((robot_row - frontier[0])**2 + (robot_col - frontier[1])**2)
-            if distance < min_distance:
+            distance = np.sqrt((robot_x - position_x)**2 + (robot_y - position_y)**2)
+            if distance < min_distance and distance > 0.5:  # Add a minimum distance threshold to avoid very close frontiers
                 min_distance = distance
                 chosen_frontier = frontier
 
@@ -151,12 +227,13 @@ class ExplorerNode(Node):
         # Detect frontiers
         frontiers = self.find_frontiers(map_array)
 
-        if time.time() - self.explorationtime < 30:
+        if time.time() - self.explorationtime < 120:
             self.get_logger().info("Exploration in progress...")
         else:
-            if len(frontiers) <= 5:
+            if len(frontiers) == 0:
                 self.get_logger().info("No frontiers found. Exploration complete!")
                 self.timer.cancel()
+                self.stopbot()
                 rclpy.shutdown()
 
             # self.shutdown_robot()
@@ -173,7 +250,7 @@ class ExplorerNode(Node):
         goal_x = chosen_frontier[1] * self.map_data.info.resolution + self.map_data.info.origin.position.x
         goal_y = chosen_frontier[0] * self.map_data.info.resolution + self.map_data.info.origin.position.y
 
-        # Navigate to the chosen frontier
+        # Navigate to the chosen frontier once goal is reached or after 10 seconds
         if self.flag or time.time() - self.time > 10:
             self.navigate_to(goal_x, goal_y)
             self.flag = False
@@ -184,6 +261,15 @@ class ExplorerNode(Node):
     #
     #
     #     self.get_logger().info("Shutting down robot exploration")
+
+    def stopbot(self):
+        self.get_logger().info('In stopbot')
+        # publish to cmd_vel to move TurtleBot
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        # time.sleep(1)
+        self.publisher_.publish(twist)
 
 
 def main(args=None):
