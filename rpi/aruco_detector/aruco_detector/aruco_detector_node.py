@@ -1,14 +1,18 @@
 from scipy.spatial.transform import Rotation as R
 
+from dynamixel_sdk_custom_interfaces import msg
+from build.dynamixel_sdk_custom_interfaces.rosidl_generator_py.dynamixel_sdk_custom_interfaces import msg
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from sensor_msgs.msg import Image         # raw camera image
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
 
 import cv2
 import numpy as np
+
+import tf2_ros
 
 
 class ArucoDetector(Node):
@@ -36,6 +40,9 @@ class ArucoDetector(Node):
             '/aruco_pose',
             10
         )
+
+        #tf2 broadcaster for marker transforms
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
         # Aruco dictionary and detector parameters
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -115,6 +122,28 @@ class ArucoDetector(Node):
 
                     # Publish marker pose
                     self.pose_publisher.publish(pose_msg)
+
+                    # Broadcast TF transform
+                    # Create TransformStamped
+                    t = TransformStamped()
+
+                    t.header.stamp = msg.header.stamp
+                    t.header.frame_id = "camera_link"   # parent frame
+                    t.child_frame_id = f"aruco_marker_{int(ids[i][0])}"
+
+                    # Translation
+                    t.transform.translation.x = float(tvec[0][0])
+                    t.transform.translation.y = float(tvec[1][0])
+                    t.transform.translation.z = float(tvec[2][0])
+
+                    # Rotation
+                    t.transform.rotation.x = quat[0]
+                    t.transform.rotation.y = quat[1]
+                    t.transform.rotation.z = quat[2]
+                    t.transform.rotation.w = quat[3]
+
+                    # Broadcast
+                    self.tf_broadcaster.sendTransform(t)
 
         # Optional: visualize (uncomment for debugging)
         # cv2.imshow("Aruco Detection", frame)
