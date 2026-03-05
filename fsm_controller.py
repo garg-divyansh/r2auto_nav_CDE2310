@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Bool
+from geometry_msgs.msg import PoseStamped
 
 class FSMNode(Node):
     def __init__(self):
@@ -15,9 +16,13 @@ class FSMNode(Node):
 
         #Publishers
         self.state_pub = self.create_publisher(String, '/states', 10)
+        self.current_marker_pub = self.create_publisher(PoseStamped, '/current_marker', 10)
 
         #Subscibers
-
+        self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
+        self.create_subscription(Bool, '/dock_done', 10)
+        self.create_subscription(Bool, '/launch_done', 10)
+        self.create_subscription(Bool, '/map_explored', 10)
 
         #Timer
         self.timer = self.create_timer(0.1, self.state_machine_loop)
@@ -44,9 +49,30 @@ class FSMNode(Node):
             if self.state == "END":
                 self.get_logger().info("Mission Complete! Goodbye!")
             pass
-        
-    def main():
-        print("Hello World!")
+
+    def aruco_callback(self, msg):
+        if self.state == "EXPLORE":
+            self.get_logger().info("Marker Detected")
+            self.marker_detected = True
+            self.current_marker = msg
+    
+    def dock_done_callback(self, msg):
+        if msg.data and self.state == "DOCK":
+            self.get_logger().info("Docking done")
+            self.change_state("LAUNCH")
+    
+    def launch_done_callback(self, msg):
+        if msg.data and self.state == "LAUNCH":
+            self.get_logger().info("Launch done")
+            self.marker_count += 1
+            self.change_state("EXPLORE")
+
+    def main(args=None):
+        rclpy.init(args=args)
+        node = FSMNode()
+        rclpy.spin(node)
+        node.destroy_node()
+        rclpy.shutdown()        
     
     if __name__ == "__main__":
         main()
