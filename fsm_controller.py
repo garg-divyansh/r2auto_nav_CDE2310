@@ -20,8 +20,8 @@ class FSMNode(Node):
 
         #Subscibers
         self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
-        self.create_subscription(Bool, '/dock_done', 10)
-        self.create_subscription(Bool, '/launch_done', 10)
+        self.create_subscription(Bool, '/dock_done', self.dock_done_callback, 10)
+        self.create_subscription(Bool, '/launch_done', self.launch_done_callback, 10)
         self.create_subscription(Bool, '/map_explored', 10)
 
         #Timer
@@ -54,11 +54,14 @@ class FSMNode(Node):
         if self.state == "EXPLORE":
             self.get_logger().info("Marker Detected")
             self.marker_detected = True
-            self.current_marker = msg
+            if self.current_marker:
+                self.current_marker = msg
+                self.current_marker_pub.publish(self.current_marker)
     
     def dock_done_callback(self, msg):
         if msg.data and self.state == "DOCK":
             self.get_logger().info("Docking done")
+            self.current_marker = None
             self.change_state("LAUNCH")
     
     def launch_done_callback(self, msg):
@@ -66,6 +69,9 @@ class FSMNode(Node):
             self.get_logger().info("Launch done")
             self.marker_count += 1
             self.change_state("EXPLORE")
+
+    def map_explored_callback(self, msg):
+            self.map_explored = msg.data
 
     def main(args=None):
         rclpy.init(args=args)
