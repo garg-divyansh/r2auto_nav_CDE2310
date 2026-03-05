@@ -1,7 +1,5 @@
 from scipy.spatial.transform import Rotation as R
 
-from dynamixel_sdk_custom_interfaces import msg
-from build.dynamixel_sdk_custom_interfaces.rosidl_generator_py.dynamixel_sdk_custom_interfaces import msg
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
