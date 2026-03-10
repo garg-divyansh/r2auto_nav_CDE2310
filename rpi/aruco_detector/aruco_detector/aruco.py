@@ -43,8 +43,8 @@ class ArucoDetector(Node):
         # Command line variables
         self.declare_parameter('verbouse', False)
         self.declare_parameter('frequency', 20)
-        self.verbouse = self.get_parameter().get_parameter_value().bool_value
-        self.update_frequency = self.get_parameter().get_parameter_value().integer_value
+        self.verbouse = self.get_parameter('verbouse').get_parameter_value().bool_value
+        self.update_frequency = self.get_parameter('frequency').get_parameter_value().integer_value
 
         # QoS profile for camera images
         qos_profile = QoSProfile(
