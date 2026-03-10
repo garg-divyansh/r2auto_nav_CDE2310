@@ -122,7 +122,7 @@ class ArucoDetector(Node):
     Also why are we trying to publish pose?
     """
     def locate_aruco(self):
-        if not self.frame_buffer or not self.msg_stamp:
+        if self.frame_buffer is None or self.msg_stamp is None:
             return
         
         # Snapshot of frame & stamp
