@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
         'aruco_detector = aruco_detector.aruco_detector_node:main',
+        'aruco_detector_test = aruco_detector.aruco:main',
         ],
     },
 )
