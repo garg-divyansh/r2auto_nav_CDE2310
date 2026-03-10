@@ -27,6 +27,7 @@ setup(
             'r2occupancy2 = auto_nav.r2occupancy2:main',
             'r2auto_nav = auto_nav.r2auto_nav:main',
             'exploration = auto_nav.exploration:main',
+            'fsm_controller = auto_nav.fsm_controller:main',
             
 
         ],
