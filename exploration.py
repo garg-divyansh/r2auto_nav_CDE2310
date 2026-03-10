@@ -9,6 +9,7 @@ from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 import numpy as np
 import time
+from std_msgs.msg import String, Bool
 
 #imports for transform
 from tf2_ros import TransformException
@@ -43,6 +44,9 @@ class ExplorerNode(Node):
         super().__init__('explorer')
         self.get_logger().info("Explorer Node Started")
 
+        # Subscriber to the status
+        self.state_sub = self.create_subscription(String, '/states', self.status_callback, 10)
+
         # Subscriber to the map topic
         self.map_sub = self.create_subscription(
             OccupancyGrid, 'map', self.map_callback, 10)
@@ -53,7 +57,8 @@ class ExplorerNode(Node):
 
         self.timer = self.create_timer(0.5, self.get_robot_pose)
 
-        # Subscriber to the ros2 camera
+        # Subscriber to the ros2 camera topic
+        
 
         # Publisher for rotation
         self.publisher_ = self.create_publisher(Twist,'cmd_vel',10)
@@ -70,12 +75,15 @@ class ExplorerNode(Node):
         self.map_data = None
         self.robot_position = (0, 0)  # Placeholder, update from localization
 
+        
         # Timer for periodic exploration
         self.timer = self.create_timer(0.5, self.explore)
 
         self.flag = True  # Flag to indicate navigation completion
         self.time = 0
         self.explorationtime = time.time()
+        self.tvec = None
+        self.status_flag = False
 
     # for odometry
     # def odom_callback(self, msg):
@@ -85,6 +93,16 @@ class ExplorerNode(Node):
     #     position = msg.pose.pose.position
     #     self.robot_position = (position.x, position.y)  # Update robot position (row)
 
+
+    def status_callback(self, msg):
+        # self.get_logger().info(f"Received status: {msg.data}")
+        if msg.data == "EXPLORE": 
+            self.status_flag = True
+            # self.get_logger().info("Status set to EXPLORE")
+        else:
+            self.status_flag = False
+            # self.get_logger().info("Status set to non-EXPLORE")
+    
     def get_robot_pose(self):
         try:
             trans = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
@@ -97,7 +115,16 @@ class ExplorerNode(Node):
         except Exception:
             return None, None, None
 
-
+    def get_tvec(self):
+        try:
+            trans = self.tf_buffer.lookup_transform('map', 'camera_link', rclpy.time.Time())
+            x = trans.transform.translation.x
+            y = trans.transform.translation.y
+            z = trans.transform.translation.z
+            self.tvec = (x, y, z)
+            return None
+        except Exception:
+            return None
 
     def map_callback(self, msg):
         self.map_data = msg
@@ -216,45 +243,48 @@ class ExplorerNode(Node):
         return chosen_frontier
 
     def explore(self):
-        if self.map_data is None:
-            self.get_logger().warning("No map data available")
-            return
-
-        # Convert map to numpy array
-        map_array = np.array(self.map_data.data).reshape(
-            (self.map_data.info.height, self.map_data.info.width))
-
-        # Detect frontiers
-        frontiers = self.find_frontiers(map_array)
-
-        if time.time() - self.explorationtime < 120:
-            self.get_logger().info("Exploration in progress...")
-        else:
-            if len(frontiers) == 0:
-                self.get_logger().info("No frontiers found. Exploration complete!")
-                self.timer.cancel()
-                self.stopbot()
-                rclpy.shutdown()
-
-            # self.shutdown_robot()
+        if self.status_flag:
+            if self.map_data is None:
+                self.get_logger().warning("No map data available")
                 return
 
-        # Choose the closest frontier
-        chosen_frontier = self.choose_frontier(frontiers)
+            # Convert map to numpy array
+            map_array = np.array(self.map_data.data).reshape(
+                (self.map_data.info.height, self.map_data.info.width))
 
-        if not chosen_frontier:
-            self.get_logger().warning("No frontiers to explore")
+            # Detect frontiers
+            frontiers = self.find_frontiers(map_array)
+
+            if time.time() - self.explorationtime < 120:
+                self.get_logger().info("Exploration in progress...")
+            else:
+                if len(frontiers) == 0:
+                    self.get_logger().info("No frontiers found. Exploration complete!")
+                    self.timer.cancel()
+                    self.stopbot()
+                    rclpy.shutdown()
+
+                # self.shutdown_robot()
+                    return
+
+            # Choose the closest frontier
+            chosen_frontier = self.choose_frontier(frontiers)
+
+            if not chosen_frontier:
+                self.get_logger().warning("No frontiers to explore")
+                return
+
+            # Convert the chosen frontier to world coordinates
+            goal_x = chosen_frontier[1] * self.map_data.info.resolution + self.map_data.info.origin.position.x
+            goal_y = chosen_frontier[0] * self.map_data.info.resolution + self.map_data.info.origin.position.y
+
+            # Navigate to the chosen frontier once goal is reached or after 10 seconds
+            if self.flag or time.time() - self.time > 10:
+                self.navigate_to(goal_x, goal_y)
+                self.flag = False
+                self.time = time.time()
+
             return
-
-        # Convert the chosen frontier to world coordinates
-        goal_x = chosen_frontier[1] * self.map_data.info.resolution + self.map_data.info.origin.position.x
-        goal_y = chosen_frontier[0] * self.map_data.info.resolution + self.map_data.info.origin.position.y
-
-        # Navigate to the chosen frontier once goal is reached or after 10 seconds
-        if self.flag or time.time() - self.time > 10:
-            self.navigate_to(goal_x, goal_y)
-            self.flag = False
-            self.time = time.time()
 
     # def shudown_robot(self):
     #     
