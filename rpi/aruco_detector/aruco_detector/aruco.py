@@ -33,7 +33,8 @@ import tf2_ros
 
 [Aruco detection]
 - Runs at fixed frequency, currently set to 20hz
-- Publishes TF transform of aruco markers ("aruco_marker_{id}") relative to "camera_link"?
+- Publishes TF transform of aruco markers ("aruco_marker_{id}") relative to "camera_link"
+- Ignored rotation, only publishes translation
 """
 
 class ArucoDetector(Node):
@@ -143,15 +144,16 @@ class ArucoDetector(Node):
                     self.obj_points,
                     corners[i],
                     self.camera_matrix,
-                    self.dist_coeffs
+                    self.dist_coeffs,
+                    flags=cv2.SOLVEPNP_IPPE_SQUARE
                 )
 
                 if success:
                     # Convert rotation vector to rotation matrix
-                    rot_matrix, _ = cv2.Rodrigues(rvec)
+                    # rot_matrix, _ = cv2.Rodrigues(rvec)
 
                     # Convert rotation matrix to quaternion
-                    quat = R.from_matrix(rot_matrix).as_quat()
+                    # quat = R.from_matrix(rot_matrix).as_quat()
 
                     # Create TransformStamped
                     t = TransformStamped()
@@ -161,15 +163,16 @@ class ArucoDetector(Node):
                     t.child_frame_id = f"aruco_marker_{int(ids[i][0])}"
 
                     # Translation
-                    t.transform.translation.x = float(tvec[0][0])
-                    t.transform.translation.y = float(tvec[1][0])
-                    t.transform.translation.z = float(tvec[2][0])
+                    # Transform camera coord. sys to match turtlebot
+                    t.transform.translation.x = float(tvec[2][0])
+                    t.transform.translation.y = -float(tvec[0][0])
+                    t.transform.translation.z = -float(tvec[1][0])
 
                     # Rotation
-                    t.transform.rotation.x = quat[0]
-                    t.transform.rotation.y = quat[1]
-                    t.transform.rotation.z = quat[2]
-                    t.transform.rotation.w = quat[3]
+                    # t.transform.rotation.x = quat[0]
+                    # t.transform.rotation.y = quat[1]
+                    # t.transform.rotation.z = quat[2]
+                    # t.transform.rotation.w = quat[3]
 
                     # Broadcast
                     self.tf_broadcaster.sendTransform(t)
