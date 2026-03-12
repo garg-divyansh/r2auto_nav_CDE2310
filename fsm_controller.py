@@ -22,7 +22,7 @@ class FSMNode(Node):
         self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
         self.create_subscription(Bool, '/dock_done', self.dock_done_callback, 10)
         self.create_subscription(Bool, '/launch_done', self.launch_done_callback, 10)
-        self.create_subscription(Bool, '/map_explored', 10)
+        self.create_subscription(Bool, '/map_explored', self.map_explored_callback, 10)
 
         #Timer
         self.timer = self.create_timer(0.1, self.state_machine_loop)
@@ -45,6 +45,7 @@ class FSMNode(Node):
             
             elif self.map_explored and self.marker_count >= self.required_markers:
                 self.change_state("END")
+            # self.change_state("EXPLORE")
         else:
             if self.state == "END":
                 self.get_logger().info("Mission Complete! Goodbye!")
@@ -73,12 +74,12 @@ class FSMNode(Node):
     def map_explored_callback(self, msg):
             self.map_explored = msg.data
 
-    def main(args=None):
-        rclpy.init(args=args)
-        node = FSMNode()
-        rclpy.spin(node)
-        node.destroy_node()
-        rclpy.shutdown()        
+def main(args=None):
+    rclpy.init(args=args)
+    node = FSMNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()        
     
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
