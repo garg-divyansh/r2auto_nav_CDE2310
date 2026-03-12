@@ -9,7 +9,7 @@ from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 import numpy as np
 import time
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String
 
 #imports for transform
 from tf2_ros import TransformException
