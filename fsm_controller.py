@@ -1,13 +1,13 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped
 
 class FSMNode(Node):
     def __init__(self):
         super().__init__('fsm_controller')
 
-        # Internal Variables
+        # ================= INTERNAL VARIABLES =================
         self.state = "IDLE"
         self.prev_state = None
 
@@ -18,27 +18,25 @@ class FSMNode(Node):
 
         self.current_marker = None
 
-        # Error Handling
+        # Error handling
         self.error_detected = False
         self.error_type = None
 
-        # Publishers
+        # ================= PUBLISHERS =================
         self.state_pub = self.create_publisher(String, '/states', 10)
         self.current_marker_pub = self.create_publisher(PoseStamped, '/current_marker', 10)
 
-        # Subscribers
+        # ================= SUBSCRIBERS =================
         self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
-        self.create_subscription(Bool, '/dock_done', self.dock_done_callback, 10)
-        self.create_subscription(Bool, '/launch_done', self.launch_done_callback, 10)
-        self.create_subscription(Bool, '/map_explored', self.map_explored_callback, 10)
         self.create_subscription(String, '/operation_status', self.status_callback, 10)
 
-        # Timer
+        # ================= TIMER =================
         self.timer = self.create_timer(0.1, self.state_machine_loop)
 
         self.get_logger().info("FSM Controller Started")
         self.change_state("EXPLORE")
 
+    # ================= STATE TRANSITION =================
     def change_state(self, new_state):
         if self.state != new_state:
             self.prev_state = self.state
@@ -50,8 +48,9 @@ class FSMNode(Node):
 
             self.get_logger().info(f"Transitioned to {new_state} state")
 
-    # ===================== FSM LOOP =====================
+    # ================= FSM LOOP =================
     def state_machine_loop(self):
+
         if self.error_detected:
             self.handle_error()
             return
@@ -73,7 +72,7 @@ class FSMNode(Node):
         elif self.state == "END":
             self.get_logger().info("Mission Complete! Goodbye!")
 
-    # ===================== ERROR HANDLER =====================
+    # ================= ERROR HANDLER =================
     def handle_error(self):
         self.get_logger().error(f"Handling error: {self.error_type}")
 
@@ -105,7 +104,7 @@ class FSMNode(Node):
         self.error_detected = False
         self.error_type = None
 
-    # ===================== CALLBACKS =====================
+    # ================= CALLBACKS =================
     def aruco_callback(self, msg):
         if self.state == "EXPLORE":
             self.get_logger().info("Marker Detected")
@@ -114,30 +113,32 @@ class FSMNode(Node):
             self.current_marker = msg
             self.current_marker_pub.publish(self.current_marker)
 
-    def dock_done_callback(self, msg):
-        if msg.data and self.state == "DOCK":
-            self.get_logger().info("Docking done")
+    def status_callback(self, msg):
+        status = msg.data
+        self.get_logger().info(f"Status received: {status}")
+
+        # ================= SUCCESS CASES =================
+        if status == "DOCK_DONE" and self.state == "DOCK":
+            self.get_logger().info("Docking completed")
             self.current_marker = None
             self.change_state("LAUNCH")
 
-    def launch_done_callback(self, msg):
-        if msg.data and self.state == "LAUNCH":
-            self.get_logger().info("Launch done")
+        elif status == "LAUNCH_DONE" and self.state == "LAUNCH":
+            self.get_logger().info("Launch completed")
             self.marker_count += 1
             self.change_state("EXPLORE")
 
-    def map_explored_callback(self, msg):
-        self.map_explored = msg.data
+        elif status == "MAP_DONE" and self.state == "EXPLORE":
+            self.get_logger().info("Map exploration completed")
+            self.map_explored = True
 
-    def status_callback(self, msg):
-        self.get_logger().info(f"Status received: {msg.data}")
-
-        if msg.data != "OK":
+        # ================= ERROR CASES =================
+        elif status in ["DOCK_FAIL", "LAUNCH_FAIL", "NAV_FAIL", "MARKER_LOST", "TIMEOUT"]:
             self.error_detected = True
-            self.error_type = msg.data
+            self.error_type = status
 
 
-# ===================== MAIN =====================
+# ================= MAIN =================
 def main(args=None):
     rclpy.init(args=args)
     node = FSMNode()
