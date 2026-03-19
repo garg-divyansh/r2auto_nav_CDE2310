@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 from geometry_msgs.msg import PoseStamped
 
 class FSMNode(Node):
@@ -17,6 +17,7 @@ class FSMNode(Node):
         self.map_explored = False
 
         self.current_marker = None
+        self.marker_id = None  # store current marker id
 
         # Error handling
         self.error_detected = False
@@ -24,7 +25,7 @@ class FSMNode(Node):
 
         # ================= PUBLISHERS =================
         self.state_pub = self.create_publisher(String, '/states', 10)
-        self.current_marker_pub = self.create_publisher(PoseStamped, '/current_marker', 10)
+        self.current_marker_pub = self.create_publisher(Int32,'/current_marker', 10)
 
         # ================= SUBSCRIBERS =================
         self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
@@ -37,20 +38,26 @@ class FSMNode(Node):
         self.change_state("EXPLORE")
 
     # ================= STATE TRANSITION =================
-    def change_state(self, new_state):
-        if self.state != new_state:
+    def change_state(self, new_state, marker_id=None):
+        """Change FSM state. Optionally include marker_id in the state string."""
+        if self.state != new_state or marker_id is not None:
             self.prev_state = self.state
             self.state = new_state
 
             msg = String()
-            msg.data = new_state
-            self.state_pub.publish(msg)
+            # Only append marker ID for DOCK or LAUNCH states
+            if marker_id is not None and new_state in ["DOCK", "LAUNCH"]:
+                msg.data = f"{new_state}_{marker_id}"
+            else:
+                msg.data = new_state
 
-            self.get_logger().info(f"Transitioned to {new_state} state")
+            self.state_pub.publish(msg)
+            self.get_logger().info(f"Transitioned to {msg.data} state")
 
     # ================= FSM LOOP =================
     def state_machine_loop(self):
 
+        # Priority: handle errors first
         if self.error_detected:
             self.handle_error()
             return
@@ -58,7 +65,10 @@ class FSMNode(Node):
         if self.state == "EXPLORE":
             if self.marker_detected:
                 self.marker_detected = False
-                self.change_state("DOCK")
+                if self.current_marker:
+                    marker_id = int(self.current_marker.header.frame_id.split("_")[-1])
+                    self.marker_id = marker_id
+                    self.change_state("DOCK", marker_id)
 
             elif self.map_explored and self.marker_count >= self.required_markers:
                 self.change_state("END")
@@ -78,7 +88,10 @@ class FSMNode(Node):
 
         if self.error_type == "DOCK_FAIL":
             self.get_logger().warn("Docking failed → retry docking")
-            self.change_state("DOCK")
+            if self.marker_id is not None:
+                self.change_state("DOCK", self.marker_id)
+            else:
+                self.change_state("DOCK")
 
         elif self.error_type == "NAV_FAIL":
             self.get_logger().warn("Navigation failed → return to explore")
@@ -86,7 +99,10 @@ class FSMNode(Node):
 
         elif self.error_type == "LAUNCH_FAIL":
             self.get_logger().warn("Launch failed → retry launch")
-            self.change_state("LAUNCH")
+            if self.marker_id is not None:
+                self.change_state("LAUNCH", self.marker_id)
+            else:
+                self.change_state("LAUNCH")
 
         elif self.error_type == "MARKER_LOST":
             self.get_logger().warn("Marker lost → re-exploring")
@@ -111,7 +127,12 @@ class FSMNode(Node):
             self.marker_detected = True
 
             self.current_marker = msg
-            self.current_marker_pub.publish(self.current_marker)
+            self.marker_id = int(self.current_marker.header.frame_id.split("_")[-1])
+
+            # Publish marker ID separately as Int32 (optional for other nodes)
+            marker_msg = Int32()
+            marker_msg.data = self.marker_id
+            self.current_marker_pub.publish(marker_msg)
 
     def status_callback(self, msg):
         status = msg.data
@@ -121,7 +142,7 @@ class FSMNode(Node):
         if status == "DOCK_DONE" and self.state == "DOCK":
             self.get_logger().info("Docking completed")
             self.current_marker = None
-            self.change_state("LAUNCH")
+            self.change_state("LAUNCH", self.marker_id)
 
         elif status == "LAUNCH_DONE" and self.state == "LAUNCH":
             self.get_logger().info("Launch completed")
@@ -136,7 +157,6 @@ class FSMNode(Node):
         elif status in ["DOCK_FAIL", "LAUNCH_FAIL", "NAV_FAIL", "MARKER_LOST", "TIMEOUT"]:
             self.error_detected = True
             self.error_type = status
-
 
 # ================= MAIN =================
 def main(args=None):
