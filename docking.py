@@ -116,6 +116,7 @@ class DockingNode(Node):
         if self.marker_id in self.list_of_markers:
             self.list_of_markers.remove(self.marker_id)
         self.marker_id = None
+        self.alignment_iterations = 0
         
         done_msg = String()
         done_msg.data = "DOCK_DONE"
