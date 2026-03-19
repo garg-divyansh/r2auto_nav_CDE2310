@@ -83,15 +83,15 @@ class ArucoDetector(Node):
         # Load camera calibration data
         # calib_data = np.load("/home/grp5/turtlebot3_ws/src/aruco_detector/aruco_detector/camera_calib.npz")
         self.camera_matrix = np.array([
-            [1292.7630777016007, 0.0, 312.5025852215214],
-            [0.0, 1293.1031123142184, 241.62988786682297],
-            [0.0, 0.0, 1.0]], 
-            dtype=np.float64)
+            [635.210233, 0.0, 396.543658],
+            [0.0, 635.546243, 304.303293],
+            [0.0, 0.0, 1.0]
+        ], dtype=np.float64)
         
         self.dist_coeffs = np.array(
-            [0.09054834883546267, 0.6555785199323255, 0.0003356103392188726, -0.0017633731422733664, 0.0], 
-            dtype=np.float64)
-
+            [0.166921, -0.270836, 0.001464, 0.000397, 0.0],
+            dtype=np.float64
+        )
         # Frame buffer & msg stamp
         self.frame_buffer = None
         self.msg_stamp = None
