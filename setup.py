@@ -28,6 +28,7 @@ setup(
             'r2auto_nav = auto_nav.r2auto_nav:main',
             'exploration = auto_nav.exploration:main',
             'fsm_controller = auto_nav.fsm_controller:main',
+            'docking = auto_nav.docking:main',
             
 
         ],

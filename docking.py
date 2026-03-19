@@ -16,7 +16,7 @@ class DockingNode(Node):
         #Subscribers & Publishers
         self.create_subscription(String, '/states', self.docking_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.dock_complete_pub = self.create_publisher(String, '/dock_complete', 10)
+        self.dock_complete_pub = self.create_publisher(String, '/operation_status', 10)
 
         #TF2
         self.tf_buffer = Buffer()
@@ -25,7 +25,16 @@ class DockingNode(Node):
         #Parameters
         self.marker_id = None  # ArUco marker ID for docking
         self.list_of_markers = [2,4,6] #list of markers for positioning, will be removed when done
-        self.alignment_threshold = 0.05  # meters, margin of error of robot from location of aruco marker in nav2 before considered aligned
+
+        self.alignment_threshold = 0.01  # meters, margin of error of robot from location of aruco marker in nav2 before considered aligned
+        self.docking_distance = 0.2 #distance to stop away from the marker for docking, in meters
+        
+        '''
+        self.declare_parameter("alignment_threshold",0.05) #metres, margin of error of robot from location of aruco marker 
+        self.declare_parameter("docking_distance",0.2) #distance to stop away from the marker for docking, in meters
+        self.declare_parameter("verbouse", False)
+        '''
+
         # Control gains for fine alignment
         self.k_linear = 0.5
         self.k_angular = 1.0
@@ -109,7 +118,7 @@ class DockingNode(Node):
         self.marker_id = None
         
         done_msg = String()
-        done_msg.data = "DOCK_COMPLETE"
+        done_msg.data = "DOCK_DONE"
         self.dock_complete_pub.publish(done_msg)
 
 
