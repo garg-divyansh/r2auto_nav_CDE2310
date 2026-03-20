@@ -167,29 +167,29 @@ class ArucoDetector(Node):
                     pnp_time = time.perf_counter() - timestamp
                 if success:
                     # Convert rotation vector to rotation matrix
-                    # rot_matrix, _ = cv2.Rodrigues(rvec)
+                    rot_matrix, _ = cv2.Rodrigues(rvec)
 
                     # Convert rotation matrix to quaternion
-                    # quat = R.from_matrix(rot_matrix).as_quat()
+                    quat = R.from_matrix(rot_matrix).as_quat()
 
                     # Create TransformStamped
                     t = TransformStamped()
 
                     t.header.stamp = stamp
-                    t.header.frame_id = "camera_link"   # parent frame
+                    t.header.frame_id = "camera_optical_frame"   # parent frame
                     t.child_frame_id = f"aruco_marker_{int(ids[i][0])}"
 
                     # Translation
                     # Transform camera coord. sys to match turtlebot
-                    t.transform.translation.x = float(tvec[2][0])
-                    t.transform.translation.y = float(tvec[0][0])
-                    t.transform.translation.z = -float(tvec[1][0])
+                    t.transform.translation.x = float(tvec[0][0])
+                    t.transform.translation.y = float(tvec[1][0])
+                    t.transform.translation.z = float(tvec[2][0])
 
                     # Rotation
-                    # t.transform.rotation.x = quat[0]
-                    # t.transform.rotation.y = quat[1]
-                    # t.transform.rotation.z = quat[2]
-                    # t.transform.rotation.w = quat[3]
+                    t.transform.rotation.x = quat[0]
+                    t.transform.rotation.y = quat[1]
+                    t.transform.rotation.z = quat[2]
+                    t.transform.rotation.w = quat[3]
 
                     # Broadcast
                     self.tf_broadcaster.sendTransform(t)
