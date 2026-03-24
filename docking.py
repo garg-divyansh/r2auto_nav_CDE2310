@@ -1,13 +1,10 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from geometry_msgs.msg import Twist, PoseStamped
-from nav2_msgs.action import NavigateToPose
-from rclpy.action import ActionClient
-from rclpy.qos import QoSProfile
-from tf2_ros import Buffer, TransformListener, LookupException
+from geometry_msgs.msg import Twist
+from tf2_ros import Buffer, TransformListener, LookupException, ExtrapolationException, ConnectivityException
 import math
-from geometry_msgs.msg import Quaternion
+
 
 class DockingNode(Node):
     def __init__(self):
@@ -24,30 +21,44 @@ class DockingNode(Node):
 
         #Parameters
         self.marker_id = None  # ArUco marker ID for docking
-        self.list_of_markers = [2,4,6] #list of markers for positioning, will be removed when done
-
-        self.alignment_threshold = 0.01  # meters, margin of error of robot from location of aruco marker in nav2 before considered aligned
-        self.docking_distance = 0.2 #distance to stop away from the marker for docking, in meters
         
-        '''
-        self.declare_parameter("alignment_threshold",0.05) #metres, margin of error of robot from location of aruco marker 
-        self.declare_parameter("docking_distance",0.2) #distance to stop away from the marker for docking, in meters
-        self.declare_parameter("verbouse", False)
-        '''
-
-        # Control gains for fine alignment
-        self.k_linear = 0.5
-        self.k_angular = 1.0
-
-        # Docking flow tracking (using variable states, not string states)
+        # Declare parameters with default values
+        self.declare_parameter("alignment_threshold", 0.05)  # metres, margin of error of robot from location of aruco marker
+        self.declare_parameter("docking_distance", 0.2)  # distance to stop away from the marker for docking, in meters
+        self.declare_parameter("k_linear", 0.5)  # linear control gain
+        self.declare_parameter("k_angular", 1.0)  # angular control gain
+        self.declare_parameter("verbose", False)  # enable verbose logging
+        self.declare_parameter("angular_threshold", 0.05)  # rad, threshold to switch from angular correction to linear movement
+        
+        # Retrieve parameters
+        self.alignment_threshold = self.get_parameter("alignment_threshold").value
+        self.docking_distance = self.get_parameter("docking_distance").value
+        self.k_linear = self.get_parameter("k_linear").value
+        self.k_angular = self.get_parameter("k_angular").value
+        self.verbose = self.get_parameter("verbose").value
+        self.angular_threshold = self.get_parameter("angular_threshold").value
+        
+        if self.verbose:
+            self.get_logger().info(f"Loaded parameters: alignment_threshold={self.alignment_threshold}, "
+                                f"docking_distance={self.docking_distance}, k_linear={self.k_linear}, "
+                                f"k_angular={self.k_angular}, verbose={self.verbose}")
+        
+        
+        # Docking flow tracking 
         self.docking_timer = None
         self.alignment_iterations = 0
 
     #Callback for dock command
     def docking_callback(self, msg):
-        if msg.data == "DOCK":
-            self.get_logger().info("Docking command received")
-            self.marker_id = None
+        try:
+            message, number = msg.data.split("_",1)
+        except ValueError:
+            return
+        
+        if message == "DOCK":
+            if self.verbose:
+                self.get_logger().info("Docking command received")
+            self.marker_id = int(number)
             self.alignment_iterations = 0
             # Start main docking loop timer
             if self.docking_timer is None:
@@ -56,52 +67,55 @@ class DockingNode(Node):
             return 
 
     def docking_step(self):
-        """Main docking flow - runs every 0.1 seconds"""
-        
-        # STEP 1: Find marker (if not found yet)
-        if self.marker_id is None:
-            for i in self.list_of_markers:
-                try:
-                    self.tf_buffer.lookup_transform('base_link', f'aruco_marker_{i}', rclpy.time.Time(), timeout=rclpy.duration.Duration(seconds=0.5))
-                    self.marker_id = i
-                    self.get_logger().info(f"Found marker ID: {self.marker_id}")
-                    break
-                except LookupException:
-                    continue
-            return  # Still searching
-        
+        #Main docking flow runs every 0.1 seconds
         # Fine alignment with TF and cmd_vel
         self.alignment_iterations += 1
         
         # Safety timeout
-        if self.alignment_iterations > 100:
-            self.get_logger().warn("Fine alignment timeout")
+        if self.alignment_iterations > 300:
+            if self.verbose:
+                self.get_logger().warn("Fine alignment timeout")
             self.cmd_pub.publish(Twist())
             self._finish_docking()
             return
         
         try:
-            transform = self.tf_buffer.lookup_transform('base_link', f'aruco_marker_{self.marker_id}', rclpy.time.Time(seconds=0))
-        except LookupException:
-            self.get_logger().warn("Lost marker during fine alignment")
+            transform = self.tf_buffer.lookup_transform('base_link', f'aruco_marker_{self.marker_id}', rclpy.time.Time())
+        except (LookupException, ExtrapolationException, ConnectivityException):
+            if self.verbose:
+                self.get_logger().warn("Lost marker during fine alignment")
             self.cmd_pub.publish(Twist())
             self._finish_docking()
             return
         
-        dx = transform.transform.translation.x
-        dy = transform.transform.translation.y
+        dx = transform.transform.translation.x #distance in forward direction
+        dy = transform.transform.translation.y #distance sideways direction, positive is left, negative is right
         angle_to_marker = math.atan2(dy, dx)
-        distance_error = dx - self.docking_distance
-        
+        distance = math.sqrt(dx**2 + dy**2) #displacement to aruco
+        distance_error = distance - self.docking_distance
+
+        '''
         # Send cmd_vel for fine alignment
         cmd = Twist()
         cmd.linear.x = self.k_linear * distance_error
         cmd.angular.z = self.k_angular * angle_to_marker
         self.cmd_pub.publish(cmd)
+        '''
+        #send out cmd_vel for fine alignment
+        cmd = Twist()
+        if abs(angle_to_marker) > self.angular_threshold:
+            cmd.linear.x = 0.0 # don't move forward yet
+            cmd.angular.z = self.k_angular * angle_to_marker #only adjust angle
+        else:
+            cmd.linear.x = self.k_linear * distance_error   # only drive once pointing at it
+            cmd.angular.z = self.k_angular * angle_to_marker # small corrections still ok
         
+        self.cmd_pub.publish(cmd)
+
         # Check if aligned (STEP 5)
         if abs(dy) < self.alignment_threshold and abs(distance_error) < self.alignment_threshold:
-            self.get_logger().info("Fine alignment complete")
+            if self.verbose:
+                self.get_logger().info("Fine alignment complete")
             self.cmd_pub.publish(Twist())
             self._finish_docking()
             return
@@ -113,8 +127,6 @@ class DockingNode(Node):
             self.docking_timer = None
         
         # Remove completed marker and publish message
-        if self.marker_id in self.list_of_markers:
-            self.list_of_markers.remove(self.marker_id)
         self.marker_id = None
         self.alignment_iterations = 0
         
