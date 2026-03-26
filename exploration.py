@@ -145,8 +145,11 @@ class ExplorerNode(Node):
         nav_goal = NavigateToPose.Goal()
         nav_goal.pose = goal_msg
 
-        self.get_logger().info(f"Navigating to goal: x={x}, y={y}")
-
+        robot_x, robot_y = self.robot_position
+        distance_to_goal = np.sqrt((robot_x - x)**2 + (robot_y - y)**2)
+        self.get_logger().info(f"Robot at: ({robot_x:.2f}, {robot_y:.2f}), Navigating to goal: x={x:.2f}, y={y:.2f}, distance={distance_to_goal:.2f}m")
+        if distance_to_goal < 0.5:
+            self.flag = True  # Set flag to indicate navigation is complete if already close to the goal
         # Wait for the action server
         self.nav_to_pose_client.wait_for_server()
 
@@ -174,8 +177,9 @@ class ExplorerNode(Node):
         """
         try:
             result = future.result().result
-            self.get_logger().info(f"Navigation completed with result: {result}")
-            self.flag = True  # Set flag to indicate navigation is complete
+            status = future.result().status
+            self.get_logger().info(f"Navigation status: {status}, result: {result}")
+            # self.flag = True  # Set flag to indicate navigation is complete
         except Exception as e:
             self.get_logger().error(f"Navigation failed: {e}")
 
@@ -205,45 +209,71 @@ class ExplorerNode(Node):
                         frontiers.append((r, c))
 
 
-        self.get_logger().info(f"Minimum cell value in the map: {min_val}")
+        # self.get_logger().info(f"Minimum cell value in the map: {min_val}")
         
 
 
-        self.get_logger().info(f"Found {len(frontiers)} frontiers")
+        # self.get_logger().info(f"Found {len(frontiers)} frontiers")
         return frontiers
 
     def choose_frontier(self, frontiers):
         """
-        Choose the closest frontier to the robot.
+        Choose the frontier with the most neighboring frontiers (cluster preference),
+        with distance as a tiebreaker.
         """
         robot_x, robot_y = self.robot_position
         self.get_logger().info(f"Robot position: {self.robot_position}")
-        min_distance = float('inf')
-        chosen_frontier = None
         
+        neighbor_threshold = 0.5  # Distance in meters to consider frontiers as neighbors
+        
+        # Calculate neighbor count and distance for each frontier
+        frontier_scores = []
         
         for frontier in frontiers:
             if frontier in self.visited_frontiers:
                 continue
             
+            # Calculate distance to robot
             position_x = frontier[1] * self.map_data.info.resolution + self.map_data.info.origin.position.x
             position_y = frontier[0] * self.map_data.info.resolution + self.map_data.info.origin.position.y
-
-            distance = np.sqrt((robot_x - position_x)**2 + (robot_y - position_y)**2)
-            if distance < min_distance and distance > 0.5:  # Add a minimum distance threshold to avoid very close frontiers
-                min_distance = distance
-                chosen_frontier = frontier
-
-        if chosen_frontier:
-            self.visited_frontiers.add(chosen_frontier)
-            self.get_logger().info(f"Chosen frontier: {chosen_frontier}")
-        else:
+            distance_to_robot = np.sqrt((robot_x - position_x)**2 + (robot_y - position_y)**2)
+            
+            if distance_to_robot < 0.5:  # Skip frontiers too close to robot
+                continue
+            
+            # Count neighboring frontiers (clustering)
+            neighbor_count = 0
+            for other_frontier in frontiers:
+                if other_frontier == frontier or other_frontier in self.visited_frontiers:
+                    continue
+                
+                other_x = other_frontier[1] * self.map_data.info.resolution + self.map_data.info.origin.position.x
+                other_y = other_frontier[0] * self.map_data.info.resolution + self.map_data.info.origin.position.y
+                
+                distance_to_neighbor = np.sqrt((position_x - other_x)**2 + (position_y - other_y)**2)
+                if distance_to_neighbor <= neighbor_threshold:
+                    neighbor_count += 1
+            
+            # Store: (neighbor_count, distance_to_robot, frontier)
+            frontier_scores.append((neighbor_count, distance_to_robot, frontier))
+        
+        if not frontier_scores:
             self.get_logger().warning("No valid frontier found")
+            return None
+        
+        # Sort by: most neighbors first (descending), then closest distance (ascending)
+        frontier_scores.sort(key=lambda x: (-x[0], x[1]))
+        
+        chosen_frontier = frontier_scores[0][2]
+        neighbor_count, distance = frontier_scores[0][0], frontier_scores[0][1]
+        
+        self.visited_frontiers.add(chosen_frontier)
+        self.get_logger().info(f"Chosen frontier: {chosen_frontier} with {neighbor_count} neighbors, distance: {distance:.2f}m")
 
         return chosen_frontier
 
     def explore(self):
-        if self.status_flag:
+        #if self.status_flag:
             if self.map_data is None:
                 self.get_logger().warning("No map data available")
                 return
@@ -255,17 +285,17 @@ class ExplorerNode(Node):
             # Detect frontiers
             frontiers = self.find_frontiers(map_array)
 
-            if time.time() - self.explorationtime < 120:
-                self.get_logger().info("Exploration in progress...")
-            else:
-                if len(frontiers) == 0:
-                    self.get_logger().info("No frontiers found. Exploration complete!")
-                    self.timer.cancel()
-                    self.stopbot()
-                    rclpy.shutdown()
+            # if time.time() - self.explorationtime < 120:
+            #     # self.get_logger().info("Exploration in progress...")
+            # else:
+            #     if len(frontiers) == 0:
+            #         self.get_logger().info("No frontiers found. Exploration complete!")
+            #         self.timer.cancel()
+            #         self.stopbot()
+            #         rclpy.shutdown()
 
-                # self.shutdown_robot()
-                    return
+            #     # self.shutdown_robot()
+            #         return
 
             # Choose the closest frontier
             chosen_frontier = self.choose_frontier(frontiers)
