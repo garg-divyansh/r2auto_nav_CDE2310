@@ -218,13 +218,13 @@ class ExplorerNode(Node):
 
     def choose_frontier(self, frontiers):
         """
-        Choose the frontier with the most neighboring frontiers (cluster preference),
-        with distance as a tiebreaker.
+        Choose the closest frontier to the robot that has more than 5 neighboring frontiers.
         """
         robot_x, robot_y = self.robot_position
         self.get_logger().info(f"Robot position: {self.robot_position}")
         
         neighbor_threshold = 0.5  # Distance in meters to consider frontiers as neighbors
+        min_neighbors_required = 5  # Minimum neighbors required
         
         # Calculate neighbor count and distance for each frontier
         frontier_scores = []
@@ -254,15 +254,16 @@ class ExplorerNode(Node):
                 if distance_to_neighbor <= neighbor_threshold:
                     neighbor_count += 1
             
-            # Store: (neighbor_count, distance_to_robot, frontier)
-            frontier_scores.append((neighbor_count, distance_to_robot, frontier))
+            # Only add frontier if it has more than min_neighbors_required neighbors
+            if neighbor_count > min_neighbors_required:
+                frontier_scores.append((neighbor_count, distance_to_robot, frontier))
         
         if not frontier_scores:
-            self.get_logger().warning("No valid frontier found")
+            self.get_logger().warning(f"No frontier found with more than {min_neighbors_required} neighbors")
             return None
         
-        # Sort by: most neighbors first (descending), then closest distance (ascending)
-        frontier_scores.sort(key=lambda x: (-x[0], x[1]))
+        # Sort by distance (ascending) to get the closest one
+        frontier_scores.sort(key=lambda x: x[1])
         
         chosen_frontier = frontier_scores[0][2]
         neighbor_count, distance = frontier_scores[0][0], frontier_scores[0][1]
