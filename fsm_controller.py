@@ -29,7 +29,13 @@ class FSMNode(Node):
 
         # ================= SUBSCRIBERS =================
         self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
+<<<<<<< HEAD
         self.create_subscription(String, '/operation_status', self.status_callback, 10)
+=======
+        self.create_subscription(Bool, '/dock_done', self.dock_done_callback, 10)
+        self.create_subscription(Bool, '/launch_done', self.launch_done_callback, 10)
+        self.create_subscription(Bool, '/map_explored', self.map_explored_callback, 10)
+>>>>>>> nikidudu_branch
 
         # ================= TIMER =================
         self.timer = self.create_timer(0.1, self.state_machine_loop)
@@ -72,8 +78,15 @@ class FSMNode(Node):
 
             elif self.map_explored and self.marker_count >= self.required_markers:
                 self.change_state("END")
+<<<<<<< HEAD
 
         elif self.state == "DOCK":
+=======
+            # self.change_state("EXPLORE")
+        else:
+            if self.state == "END":
+                self.get_logger().info("Mission Complete! Goodbye!")
+>>>>>>> nikidudu_branch
             pass
 
         elif self.state == "LAUNCH":
@@ -153,18 +166,26 @@ class FSMNode(Node):
             self.get_logger().info("Map exploration completed")
             self.map_explored = True
 
+<<<<<<< HEAD
         # ================= ERROR CASES =================
         elif status in ["DOCK_FAIL", "LAUNCH_FAIL", "NAV_FAIL", "MARKER_LOST", "TIMEOUT"]:
             self.error_detected = True
             self.error_type = status
 
 # ================= MAIN =================
+=======
+>>>>>>> nikidudu_branch
 def main(args=None):
     rclpy.init(args=args)
     node = FSMNode()
     rclpy.spin(node)
     node.destroy_node()
+<<<<<<< HEAD
     rclpy.shutdown()
 
+=======
+    rclpy.shutdown()        
+    
+>>>>>>> nikidudu_branch
 if __name__ == "__main__":
     main()
