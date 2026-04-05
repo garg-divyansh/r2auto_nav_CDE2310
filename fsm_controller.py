@@ -17,11 +17,15 @@ class FSMNode(Node):
         self.map_explored = False
 
         self.current_marker = None
-        self.marker_id = None  # store current marker id
+        self.marker_id = None
 
         # Error handling
         self.error_detected = False
         self.error_type = None
+
+        # 🔴 Dock retry logic
+        self.dock_attempts = 0
+        self.max_dock_attempts = 2
 
         # ================= PUBLISHERS =================
         self.state_pub = self.create_publisher(String, '/states', 10)
@@ -31,7 +35,6 @@ class FSMNode(Node):
         self.create_subscription(PoseStamped, '/aruco_pose', self.aruco_callback, 10)
         self.create_subscription(String, '/operation_status', self.status_callback, 10)
 
-
         # ================= TIMER =================
         self.timer = self.create_timer(0.1, self.state_machine_loop)
 
@@ -40,13 +43,11 @@ class FSMNode(Node):
 
     # ================= STATE TRANSITION =================
     def change_state(self, new_state, marker_id=None):
-        """Change FSM state. Optionally include marker_id in the state string."""
         if self.state != new_state or marker_id is not None:
             self.prev_state = self.state
             self.state = new_state
 
             msg = String()
-            # Only append marker ID for DOCK or LAUNCH states
             if marker_id is not None and new_state in ["DOCK", "LAUNCH"]:
                 msg.data = f"{new_state}_{marker_id}"
             else:
@@ -58,7 +59,6 @@ class FSMNode(Node):
     # ================= FSM LOOP =================
     def state_machine_loop(self):
 
-        # Priority: handle errors first
         if self.error_detected:
             self.handle_error()
             return
@@ -67,9 +67,8 @@ class FSMNode(Node):
             if self.marker_detected:
                 self.marker_detected = False
                 if self.current_marker:
-                    marker_id = int(self.current_marker.header.frame_id.split("_")[-1])
-                    self.marker_id = marker_id
-                    self.change_state("DOCK", marker_id)
+                    self.marker_id = int(self.current_marker.header.frame_id.split("_")[-1])
+                    self.change_state("DOCK", self.marker_id)
 
             elif self.map_explored and self.marker_count >= self.required_markers:
                 self.change_state("END")
@@ -87,12 +86,20 @@ class FSMNode(Node):
     def handle_error(self):
         self.get_logger().error(f"Handling error: {self.error_type}")
 
-        if self.error_type == "DOCK_FAIL":
-            self.get_logger().warn("Docking failed → retry docking")
-            if self.marker_id is not None:
-                self.change_state("DOCK", self.marker_id)
+        if self.error_type in ["DOCK_FAIL", "TIMEOUT"]:
+            self.dock_attempts += 1
+
+            if self.dock_attempts < self.max_dock_attempts:
+                self.get_logger().warn(f"Dock failed (attempt {self.dock_attempts}) → retrying")
+
+                if self.marker_id is not None:
+                    self.change_state("DOCK", self.marker_id)
+                else:
+                    self.change_state("DOCK")
+
             else:
-                self.change_state("DOCK")
+                self.get_logger().error("Dock failed twice → giving up")
+                self.change_state("END")
 
         elif self.error_type == "NAV_FAIL":
             self.get_logger().warn("Navigation failed → return to explore")
@@ -100,73 +107,8 @@ class FSMNode(Node):
 
         elif self.error_type == "LAUNCH_FAIL":
             self.get_logger().warn("Launch failed → retry launch")
+
             if self.marker_id is not None:
                 self.change_state("LAUNCH", self.marker_id)
             else:
-                self.change_state("LAUNCH")
-
-        elif self.error_type == "MARKER_LOST":
-            self.get_logger().warn("Marker lost → re-exploring")
-            self.change_state("EXPLORE")
-
-        elif self.error_type == "TIMEOUT":
-            self.get_logger().warn("Timeout → resetting to explore")
-            self.change_state("EXPLORE")
-
-        else:
-            self.get_logger().fatal("Unknown error → stopping mission")
-            self.change_state("END")
-
-        # Reset error after handling
-        self.error_detected = False
-        self.error_type = None
-
-    # ================= CALLBACKS =================
-    def aruco_callback(self, msg):
-        if self.state == "EXPLORE":
-            self.get_logger().info("Marker Detected")
-            self.marker_detected = True
-
-            self.current_marker = msg
-            self.marker_id = int(self.current_marker.header.frame_id.split("_")[-1])
-
-            # Publish marker ID separately as Int32 (optional for other nodes)
-            marker_msg = Int32()
-            marker_msg.data = self.marker_id
-            self.current_marker_pub.publish(marker_msg)
-
-    def status_callback(self, msg):
-        status = msg.data
-        self.get_logger().info(f"Status received: {status}")
-
-        # ================= SUCCESS CASES =================
-        if status == "DOCK_DONE" and self.state == "DOCK":
-            self.get_logger().info("Docking completed")
-            self.current_marker = None
-            self.change_state("LAUNCH", self.marker_id)
-
-        elif status == "LAUNCH_DONE" and self.state == "LAUNCH":
-            self.get_logger().info("Launch completed")
-            self.marker_count += 1
-            self.change_state("EXPLORE")
-
-        elif status == "MAP_DONE" and self.state == "EXPLORE":
-            self.get_logger().info("Map exploration completed")
-            self.map_explored = True
-
-        # ================= ERROR CASES =================
-        elif status in ["DOCK_FAIL", "LAUNCH_FAIL", "NAV_FAIL", "MARKER_LOST", "TIMEOUT"]:
-            self.error_detected = True
-            self.error_type = status
-
-# ================= MAIN =================
-def main(args=None):
-    rclpy.init(args=args)
-    node = FSMNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()    
-
-
-if __name__ == "__main__":
-    main()
+                self.change
